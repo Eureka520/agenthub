@@ -17,3 +17,5 @@ client/dist/
 
 # 构建缓存
 *.tsbuildinfo
+node_modules
+__pycache__

@@ -1,0 +1,37 @@
+server:
+  port: 9100
+  host: "0.0.0.0"
+  token: "ahub-change-me"
+
+security:
+  max_timeout: 7200
+  max_output_bytes: 1048576
+  confirm_expire_seconds: 300
+
+  # Permanently blocked (regex patterns)
+  blocked_patterns:
+    - 'rm\s+-rf\s+/\s*$'
+    - 'rm\s+-rf\s+/\*'
+    - 'mkfs\.'
+    - 'dd\s+if=.*/dev/'
+    - ':\(\)\{\s*:\|:&\s*\};:'
+    - 'shutdown|poweroff|reboot|init\s+0'
+    - '>\s*/dev/sd'
+    - 'chmod\s+-R\s+777\s+/'
+
+  # Requires user confirmation (regex patterns)
+  confirm_patterns:
+    - 'rm\s+-rf'
+    - 'rm\s+-r\s+'
+    - 'docker\s+rm'
+    - 'docker\s+rmi'
+    - 'docker\s+system\s+prune'
+    - 'kill\s+-9'
+    - 'killall'
+    - 'pkill'
+    - 'apt\s+remove'
+    - 'apt\s+purge'
+    - 'yum\s+remove'
+    - 'pip\s+uninstall'
+    - 'systemctl\s+stop'
+    - 'systemctl\s+disable'

@@ -153,6 +153,11 @@ agenthub attach <名称>  # 直接进入指定名称的会话
 
 ## 更新日志
 
+### 2026-06-05
+
+- **ahub-node**：新增 MCP Server 远程节点，Agent 可通过标准 MCP 协议安全操控远程算力机
+- 支持远程 Shell 执行、Docker 容器管理、文件读写、GPU/系统监控，命令三级安全管控（自由/确认/禁止）
+
 ### 2026-06-03
 
 - **Web 控制台增强**：新建会话支持目录选择；文件浏览器支持 `/` 根目录、新建文件夹、上传下载和路径复制
@@ -185,38 +190,50 @@ agenthub attach <名称>  # 直接进入指定名称的会话
 
 ---
 
-## 截图
+## ahub-node — 远程算力节点 (MCP Server)
 
-| Web 会话列表 | Web 终端 |
-|---|---|
-| <img src="docs/assets/screenshots/web-home-desktop.png" alt="Web 会话列表" width="520"> | <img src="docs/assets/screenshots/web-terminal-desktop.png" alt="Web 终端" width="520"> |
+让 AI Agent 安全操控远程机器，无需暴露 SSH 密码。
 
-| 移动端会话列表 | TUI 会话管理 |
-|---|---|
-| <img src="docs/assets/screenshots/mobile-home.jpg" alt="移动端会话列表" width="260"> | <img src="docs/assets/screenshots/tui-session-list.png" alt="TUI 会话管理" width="520"> |
+```
+AgentHub 容器                         目标算力机
+┌──────────────────┐                 ┌──────────────────────┐
+│ Claude Code/Codex│── MCP 协议 ──▶ │ ahub-node (port 9100)│
+│ (自动发现工具)    │◀── 执行结果 ───│ 7 个通用工具          │
+└──────────────────┘                 └──────────────────────┘
+```
 
----
+| 工具 | 功能 |
+|------|------|
+| `shell_exec` | 宿主机执行任意命令 |
+| `container_exec` | Docker 容器内执行命令 |
+| `container_manage` | 创建/列表/停止/删除容器 |
+| `file_read` / `file_write` | 读写文件 |
+| `system_info` | CPU/内存/GPU/磁盘/容器状态 |
+| `transfer_file` | 宿主机与容器间传输文件 |
 
-## 文档
+部署：
 
-- [安装指南](docs/installation.md)
-- [使用手册](docs/usage.md)
-- [API 文档](docs/api.md)
-- [架构说明](docs/architecture.md)
-- [开发指南](docs/development.md)
+```bash
+# 目标机器上（需 Python 3.10+）
+pip install mcp pyyaml
+python ahub-node/server.py
+```
 
----
+配置（AgentHub 侧 `~/.claude/.mcp.json`）：
 
-## 参与贡献
-
-这个工具还很年轻，欢迎：
-
-- 🐛 [提交 BUG](https://github.com/Eureka520/agenthub/issues/new?labels=bug)
-- 💡 [提功能建议](https://github.com/Eureka520/agenthub/issues/new?labels=enhancement)
-- 🔧 提交 PR
+```json
+{
+  "mcpServers": {
+    "node-A100-594": {
+      "type": "sse",
+      "url": "http://目标机器IP:9100/sse"
+    }
+  }
+}
+```
 
 ---
 
 ## 许可证
 
-[Apache 2.0](LICENSE) © 2026 changdazhou
+[Apache 2.0](LICENSE) © 2026 Eureka520
