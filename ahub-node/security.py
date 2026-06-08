@@ -52,3 +52,13 @@ def validate_confirmation(token: Optional[str], cmd: str) -> bool:
         return False
     del _pending[token]
     return True
+
+
+def check_path(path: str, blocked_paths: list[str]) -> bool:
+    """Return True if path is allowed, False if blocked."""
+    from pathlib import PurePosixPath
+    p = PurePosixPath(path).as_posix()
+    for blocked in blocked_paths:
+        if p == blocked or p.startswith(blocked.rstrip("/") + "/"):
+            return False
+    return True

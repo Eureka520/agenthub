@@ -30,13 +30,17 @@ if [[ "$SCRIPT_DIR" != "$INSTALL_DIR" ]]; then
   echo ""
   echo "  Installing to $INSTALL_DIR ..."
   mkdir -p "$INSTALL_DIR"
-  cp "$SCRIPT_DIR"/{server.py,security.py,config.yaml,requirements.txt} "$INSTALL_DIR/"
+  cp "$SCRIPT_DIR"/{server.py,security.py,audit.py,config.yaml,requirements.txt} "$INSTALL_DIR/"
 fi
 
 # Install Python dependencies
 echo "  Installing dependencies..."
 pip3 install -q -r "$INSTALL_DIR/requirements.txt"
 echo "  ✓ Dependencies installed"
+
+# Create audit log directory
+mkdir -p /var/log/ahub-node
+echo "  ✓ Audit log directory created"
 
 # Generate token if using default
 if grep -q "ahub-change-me" "$INSTALL_DIR/config.yaml"; then

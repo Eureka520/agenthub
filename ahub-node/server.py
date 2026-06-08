@@ -22,7 +22,9 @@ import yaml
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
+import audit
 from security import (
+    check_path,
     classify_command,
     create_confirmation,
     load_patterns,
@@ -38,12 +40,22 @@ with open(CONFIG_PATH) as f:
 
 SERVER_CFG = CONFIG.get("server", {})
 SEC_CFG = CONFIG.get("security", {})
-TOKEN = SERVER_CFG.get("token", "")
 MAX_TIMEOUT = SEC_CFG.get("max_timeout", 7200)
 MAX_OUTPUT = SEC_CFG.get("max_output_bytes", 1048576)
 CONFIRM_EXPIRE = SEC_CFG.get("confirm_expire_seconds", 300)
+BLOCKED_PATHS = SEC_CFG.get("blocked_paths", [])
 
 BLOCKED_PAT, CONFIRM_PAT = load_patterns(CONFIG)
+
+# ── Auth ───────────────────────────────────────────────────────────────────
+
+AUTH_TOKENS: dict[str, str] = {}  # token_value -> caller_name
+for entry in SERVER_CFG.get("tokens", []):
+    AUTH_TOKENS[entry["token"]] = entry.get("name", "unknown")
+
+# ── Audit ──────────────────────────────────────────────────────────────────
+
+audit.init(SEC_CFG.get("audit_log"))
 
 # ── MCP Server ──────────────────────────────────────────────────────────────
 
@@ -57,6 +69,20 @@ mcp = FastMCP(
         allowed_hosts=["*"],
     ),
 )
+
+# ── Auth Middleware ────────────────────────────────────────────────────────
+
+_current_caller = "anonymous"
+
+
+def _authenticate_request(headers: dict) -> str:
+    """Validate Bearer token from request headers. Returns caller name or empty string."""
+    if not AUTH_TOKENS:
+        return "anonymous"
+    auth = headers.get("authorization", "")
+    if not auth.startswith("Bearer "):
+        return ""
+    return AUTH_TOKENS.get(auth[7:], "")
 
 # ── Helper ──────────────────────────────────────────────────────────────────
 
@@ -117,8 +143,11 @@ def shell_exec(cmd: str, cwd: str = "/", timeout: int = 60, confirm_token: str =
     """
     check = _check_security(cmd, confirm_token or None)
     if check:
+        audit.log("shell_exec", {"cmd": cmd, "cwd": cwd}, check.get("status", "denied"))
         return check
-    return _run(cmd, timeout=timeout, cwd=cwd)
+    result = _run(cmd, timeout=timeout, cwd=cwd)
+    audit.log("shell_exec", {"cmd": cmd, "cwd": cwd}, f"exit:{result['exit_code']}")
+    return result
 
 
 @mcp.tool()
@@ -134,11 +163,17 @@ def container_exec(container_id: str, cmd: str, cwd: str = "", timeout: int = 60
     Returns:
         dict with stdout, stderr, exit_code
     """
+    check = _check_security(cmd, None)
+    if check:
+        audit.log("container_exec", {"container_id": container_id, "cmd": cmd}, check.get("status", "denied"))
+        return check
     docker_cmd = f"docker exec"
     if cwd:
         docker_cmd += f" -w {cwd}"
     docker_cmd += f" {container_id} bash -c {_shell_quote(cmd)}"
-    return _run(docker_cmd, timeout=timeout)
+    result = _run(docker_cmd, timeout=timeout)
+    audit.log("container_exec", {"container_id": container_id, "cmd": cmd}, f"exit:{result['exit_code']}")
+    return result
 
 
 @mcp.tool()
@@ -161,8 +196,9 @@ def container_manage(action: str, image: str = "", name: str = "",
         dict with operation result
     """
     if action == "list":
-        return _run("docker ps -a --format 'table {{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'")
-
+        result = _run("docker ps -a --format 'table {{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'")
+        audit.log("container_manage", {"action": "list"}, f"exit:{result['exit_code']}")
+        return result
     if action == "create":
         if not image:
             return {"status": "error", "message": "image is required for create"}
@@ -180,13 +216,17 @@ def container_manage(action: str, image: str = "", name: str = "",
             for v in volumes.split(","):
                 cmd += f" -v {v.strip()}"
         cmd += f" {image} sleep infinity"
-        return _run(cmd)
+        result = _run(cmd)
+        audit.log("container_manage", {"action": "create", "image": image, "name": name}, f"exit:{result['exit_code']}")
+        return result
 
     if action == "stop":
         target = name or ""
         if not target:
             return {"status": "error", "message": "name/container_id is required"}
-        return _run(f"docker stop {target}")
+        result = _run(f"docker stop {target}")
+        audit.log("container_manage", {"action": "stop", "name": target}, f"exit:{result['exit_code']}")
+        return result
 
     if action == "rm":
         target = name or ""
@@ -195,8 +235,11 @@ def container_manage(action: str, image: str = "", name: str = "",
         rm_cmd = f"docker rm -f {target}"
         check = _check_security(rm_cmd, confirm_token or None)
         if check:
+            audit.log("container_manage", {"action": "rm", "name": target}, check.get("status", "denied"))
             return check
-        return _run(rm_cmd)
+        result = _run(rm_cmd)
+        audit.log("container_manage", {"action": "rm", "name": target}, f"exit:{result['exit_code']}")
+        return result
 
     return {"status": "error", "message": f"Unknown action: {action}. Use: create, list, stop, rm"}
 
@@ -212,13 +255,19 @@ def file_read(path: str, container_id: str = "") -> dict:
     Returns:
         dict with content or error
     """
+    if not container_id and not check_path(path, BLOCKED_PATHS):
+        audit.log("file_read", {"path": path}, "blocked")
+        return {"error": f"Path is blocked by security policy: {path}"}
     if container_id:
         result = _run(f"docker exec {container_id} cat {_shell_quote(path)}")
+        audit.log("file_read", {"path": path, "container_id": container_id}, f"exit:{result['exit_code']}")
         return {"content": result["stdout"], "error": result["stderr"]} if result["exit_code"] == 0 else result
     try:
         content = Path(path).read_text(errors="replace")[:MAX_OUTPUT]
+        audit.log("file_read", {"path": path}, "ok")
         return {"content": content}
     except Exception as e:
+        audit.log("file_read", {"path": path}, "error")
         return {"error": str(e)}
 
 
@@ -234,21 +283,27 @@ def file_write(path: str, content: str, container_id: str = "") -> dict:
     Returns:
         dict with success status
     """
+    if not container_id and not check_path(path, BLOCKED_PATHS):
+        audit.log("file_write", {"path": path}, "blocked")
+        return {"success": False, "error": f"Path is blocked by security policy: {path}"}
     if container_id:
-        # Write via stdin pipe to docker exec
         cmd = f"docker exec -i {container_id} tee {_shell_quote(path)}"
         try:
             proc = subprocess.run(cmd, shell=True, input=content, capture_output=True, text=True, timeout=30)
+            audit.log("file_write", {"path": path, "container_id": container_id}, f"exit:{proc.returncode}")
             if proc.returncode == 0:
                 return {"success": True, "path": path}
             return {"success": False, "error": proc.stderr}
         except Exception as e:
+            audit.log("file_write", {"path": path, "container_id": container_id}, "error")
             return {"success": False, "error": str(e)}
     try:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         Path(path).write_text(content)
+        audit.log("file_write", {"path": path}, "ok")
         return {"success": True, "path": path}
     except Exception as e:
+        audit.log("file_write", {"path": path}, "error")
         return {"success": False, "error": str(e)}
 
 
@@ -259,6 +314,7 @@ def system_info() -> dict:
     Returns:
         dict with cpu, memory, gpu, disk, containers, kernel info
     """
+    audit.log("system_info", {}, "ok")
     info = {}
 
     # CPU
@@ -340,7 +396,9 @@ def transfer_file(src: str, dest: str, container_id: str = "", direction: str = 
 
     result = _run(cmd, timeout=300)
     if result["exit_code"] == 0:
+        audit.log("transfer_file", {"src": src, "dest": dest, "direction": direction}, "ok")
         return {"success": True, "message": f"Transferred {src} → {dest}"}
+    audit.log("transfer_file", {"src": src, "dest": dest, "direction": direction}, "error")
     return {"success": False, "error": result["stderr"]}
 
 
@@ -379,7 +437,7 @@ if __name__ == "__main__":
     print(f"\n  ahub-node MCP Server")
     print(f"  Listening: http://{lan_ip}:{args.port}")
     print(f"  Tools: {len(mcp._tool_manager._tools)} registered")
-    print(f"  Token: {'configured' if TOKEN else 'NOT SET (insecure!)'}")
+    print(f"  Auth: {len(AUTH_TOKENS)} token(s) configured" if AUTH_TOKENS else "  Auth: OPEN (no tokens configured)")
     print(f"\n  Claude Code settings.json:")
     print(f'  "mcpServers": {{ "node": {{ "type": "sse", "url": "http://{lan_ip}:{args.port}/sse" }} }}')
     print()

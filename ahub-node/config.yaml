@@ -1,12 +1,25 @@
 server:
   port: 9100
   host: "0.0.0.0"
-  token: "ahub-change-me"
+
+  # Auth tokens — each entry is {token, name} for audit trail
+  # install.sh auto-generates the first one on deploy
+  tokens:
+    - token: "ahub-change-me"
+      name: "default"
 
 security:
+  audit_log: "/var/log/ahub-node/audit.jsonl"
   max_timeout: 7200
   max_output_bytes: 1048576
   confirm_expire_seconds: 300
+
+  # Paths blocked for file_read/file_write on host
+  blocked_paths:
+    - "/etc/shadow"
+    - "/etc/gshadow"
+    - "/root/.ssh"
+    - "/etc/sudoers"
 
   # Permanently blocked (regex patterns)
   blocked_patterns:

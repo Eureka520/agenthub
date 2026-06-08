@@ -19,3 +19,9 @@ client/dist/
 *.tsbuildinfo
 node_modules
 __pycache__
+
+# 知识图谱产物
+graphify-out/
+
+# core dump
+core.*
