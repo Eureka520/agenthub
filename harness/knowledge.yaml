@@ -1,72 +1,103 @@
 known_issues:
-  # L1 - Auto-fix (high confidence)
+  # ── L1 自动修复（高置信度）──────────────────────────────
   - pattern: "pip.*timed? out|ConnectTimeoutError|ConnectionError"
     level: L1
     solution: "switch_proxy"
     confidence: high
+    desc: "pip 安装超时 → 切换代理重试"
+
   - pattern: "No module named '(\\w+)'"
     level: L1
     solution: "pip_install_missing"
     confidence: high
+    desc: "缺失 Python 模块 → pip install 对应包"
+
   - pattern: "ModuleNotFoundError.*paddlex"
     level: L1
     solution: "pip install -U paddleocr[doc-parser]"
     confidence: high
+    desc: "paddlex 模块缺失 → 安装 paddleocr doc-parser 组件"
+
   - pattern: "command not found: (\\w+)"
     level: L1
     solution: "apt_install_missing"
     confidence: high
+    desc: "系统命令不存在 → apt install 对应包"
+
   - pattern: "Could not find a version that satisfies"
     level: L1
     solution: "switch_pip_mirror"
     confidence: high
+    desc: "pip 找不到满足版本 → 切换镜像源"
+
   - pattern: "huggingface_hub.*not found|hf.*command not found"
     level: L1
     solution: "pip install -U huggingface_hub[cli]"
     confidence: high
+    desc: "hf 命令不存在 → 安装 huggingface_hub CLI"
+
   - pattern: "Cannot reach HuggingFace|HfHubHTTPError|ConnectTimeout.*huggingface"
     level: L1
     solution: "switch_hf_proxy"
     confidence: high
+    desc: "HuggingFace 连接超时 → 切换代理 agent.baidu.com:8188"
+
   - pattern: "OSError.*We couldn't connect to"
     level: L1
     solution: "switch_hf_proxy"
     confidence: high
-  - pattern: "Repository Not Found|EntryNotFoundError"
-    level: L2
-    solution: "check_model_name_or_use_local_path"
-    confidence: medium
+    desc: "网络连接失败 → 切换代理重试"
+
   - pattern: "/path/to/|your/model|placeholder"
     level: L1
     solution: "resolve_model_path_via_hf_download"
     confidence: high
+    desc: "检测到占位符路径 → 用 hf download 下载模型到本地"
 
-  # L2 - Try fix (medium confidence)
+  # ── L2 尝试修复（中置信度）──────────────────────────────
+  - pattern: "Repository Not Found|EntryNotFoundError"
+    level: L2
+    solution: "check_model_name_or_use_local_path"
+    confidence: medium
+    desc: "模型仓库找不到 → 检查模型名或使用本地路径"
+
   - pattern: "CUDA.*capability.*7\\.5"
     level: L2
     solution: "mount_host_cuda_or_install_toolkit_13"
     confidence: medium
+    desc: "GPU 算力不兼容 → 挂载宿主机 CUDA 或安装 toolkit 13"
+
   - pattern: "OutOfMemoryError|CUDA out of memory"
     level: L2
     solution: "reduce_gpu_memory_utilization"
-    params: {reduce_factor: 0.5}
     confidence: medium
+    params: {reduce_factor: 0.5}
+    desc: "显存溢出 → 降低 gpu_memory_utilization 参数"
+
   - pattern: "version.*conflict|incompatible|Cannot install"
     level: L2
     solution: "try_alternative_version"
     confidence: medium
+    desc: "版本冲突 → 尝试备选版本"
+
   - pattern: "Address already in use"
     level: L2
     solution: "kill_existing_process_on_port"
     confidence: medium
+    desc: "端口被占用 → kill 占用进程后重试"
 
-  # L3 - Stop and record
+  # ── L3 停止记录（无法修复）──────────────────────────────
   - pattern: "Segmentation fault|core dumped"
     level: L3
     solution: null
+    desc: "段错误 → 立即停止，保留环境排查"
+
   - pattern: "killed.*signal 9|OOM.*killed"
     level: L3
     solution: null
+    desc: "进程被 OOM killer 杀死 → 停止，保留环境"
+
   - pattern: "RuntimeError.*NCCL"
     level: L3
     solution: null
+    desc: "NCCL 通信错误 → 停止，保留环境"

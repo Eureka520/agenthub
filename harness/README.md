@@ -63,14 +63,17 @@ harness/
 
 ## 各 Stage Type 的执行策略（nodes.py 硬编码）
 
-| type | 策略 | 不可跳过的约束 |
-|------|------|--------------|
-| `container_create` | 调 MCP container_manage | 创建前自动选空闲 GPU |
-| `venv_create` | python -m venv | 目录保留不删除 |
-| `install` | pip/hf install + 代理切换 | 失败自动 export proxy=agent.baidu.com:8188 重试 |
-| `service_start` | nohup 后台 + health_check 轮询 | 必须健康检查通过才进下一步 |
-| `test_run` | 前台执行 + timeout | 启动 GPU 监控 + CUDA_VISIBLE_DEVICES 锁定 |
-| `collect` | tar 打包 + 文件数校验 | 校验产出物完整性 |
+| type | 策略 | 不可跳过的约束 | 宿主机保护 |
+|------|------|--------------|-----------|
+| `container_create` | 调 MCP container_manage | 创建前自动选空闲 GPU | 允许在宿主机执行 |
+| `venv_create` | python -m venv | 目录保留不删除 | 允许在宿主机执行 |
+| `install` | pip/hf install + 代理切换 | 失败自动 export proxy=agent.baidu.com:8188 重试 | **必须在 docker/venv 中** |
+| `service_start` | nohup 后台 + health_check 轮询 | 必须健康检查通过才进下一步 | **必须在 docker/venv 中** |
+| `test_run` | 前台执行 + timeout | 启动 GPU 监控 + CUDA_VISIBLE_DEVICES 锁定 | **必须在 docker/venv 中** |
+| `collect` | tar 打包 + 文件数校验 | 校验产出物完整性 | 允许在宿主机执行 |
+| `custom` | 按命令顺序执行 | 兜底，无特殊策略 | 允许在宿主机执行 |
+
+宿主机保护规则：`install`、`service_start`、`test_run` 如果没有关联到 docker 容器或 venv，harness 拒绝执行并报错。
 | `custom` | 按命令顺序执行 | 兜底，无特殊策略 |
 
 ## 交互流程
@@ -121,6 +124,51 @@ python -m harness resume --run-id run_1749465600
 - 远程机器启动 ahub-node 服务（`python server.py`）
 - `config.yaml` 中 mcp.url 和 mcp.token 配置正确
 - `pip install -r harness/requirements.txt`
+
+## Harness 与 MCP 工具的关系
+
+Harness 通过 `McpClient`（在 `orchestrator/nodes.py` 中）连接 ahub-node 的 7 个 MCP 工具来操作远程机器。对应关系：
+
+| Stage Type | 调用的 MCP 工具 | 用途 |
+|-----------|----------------|------|
+| `container_create` | `container_manage(action="create")` | 创建 Docker 容器 |
+| `venv_create` | `container_exec` 或 `shell_exec` | 在容器/宿主机内创建 venv |
+| `install` | `container_exec` | 在容器内执行 pip install |
+| `service_start` | `container_exec` | 在容器内 nohup 启动服务 |
+| `test_run` | `container_exec` | 在容器内执行测试脚本 |
+| `collect` | `container_exec` + `file_read` | 打包结果 + 校验文件 |
+| GPU 选择 | `system_info` | 获取 GPU 状态选空闲卡 |
+| 健康检查 | `container_exec` | 轮询 curl health endpoint |
+| 日志读取 | `file_read` | 读取服务/监控日志 |
+
+调用链路：
+```
+harness/orchestrator/nodes.py
+  → McpClient._call(tool_name, args)
+  → mcp 客户端库 sse_client 连接 http://远程IP:9100/sse
+  → Bearer token 认证
+  → ahub-node server.py 接收并执行
+  → 结果 JSON 返回
+```
+
+ahub-node 的 7 个工具在 harness 中的使用场景：
+
+| MCP 工具 | Harness 中何时调用 |
+|----------|-------------------|
+| `shell_exec` | venv 创建（宿主机级别操作） |
+| `container_exec` | 所有容器内操作（install/service/test） |
+| `container_manage` | 创建容器 |
+| `file_read` | 读取日志、检查结果文件 |
+| `file_write` | 未直接使用（测试脚本通过 container_exec echo 写入） |
+| `system_info` | 执行前获取 GPU 状态、选择空闲卡 |
+| `transfer_file` | 未直接使用（可扩展用于导出结果） |
+
+## 经验积累
+
+Harness 会自动变聪明：
+- **自动学习**：install 阶段重试成功后，自动将错误 pattern + 修复方案追加到 `knowledge.yaml`
+- **手动教学**：用户教 agent 解决错误时，agent 按规则写入 `knowledge.yaml`
+- 新写入条目标记 `confidence: medium`，经多次验证后手动升级为 `high`
 
 ## 扩展
 

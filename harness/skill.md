@@ -25,6 +25,8 @@
 8. 环境执行完不删除，报告中给出再进入方式
 9. 安装类操作遵循 `harness/config.yaml` 代理切换策略
 10. 遇到错误先查 `harness/knowledge.yaml`，匹配已知模式则按方案处理
+11. 当用户教你解决了测试执行中的错误时，必须将 pattern + solution 写入 `harness/knowledge.yaml`（格式参考已有条目，confidence 设为 medium）
+12. install/service_start/test_run 必须在 docker 容器或 venv 中执行，禁止直接操作宿主机。生成 TestPlan 时，pip install、服务启动、测试脚本必须归类为 install/service_start/test_run 类型（不要归为 custom），确保宿主机保护生效
 
 ## 错误处理
 

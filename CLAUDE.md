@@ -29,5 +29,7 @@ See `docs/remote-ops-rules.md` for full specification.
 6. 未知错误不猜测解决方案，记录完整 stderr 并停止
 7. 服务类操作必须后台启动 + 健康检查确认就绪
 8. 遇到错误先查 `harness/knowledge.yaml`，匹配则按方案处理
+9. 用户教你解决测试错误时，必须将 pattern + solution 写入 `harness/knowledge.yaml`
+10. install/service_start/test_run 禁止在宿主机直接执行，必须在 docker 或 venv 中。生成 TestPlan 时注意正确归类 stage type
 
 See `harness/skill.md` for full harness specification.

@@ -66,8 +66,19 @@ class McpClient:
         return self._call("system_info", {})
 
 
+# Stage types that MUST run inside docker or venv (protect host machine)
+REQUIRE_ISOLATED_ENV = {"install", "service_start", "test_run"}
+
+
 def execute_stage(stage: dict, state: dict, mcp: McpClient) -> dict:
     """Route to the correct executor based on stage type."""
+    # Host protection: refuse to run install/service/test directly on host
+    if stage["type"] in REQUIRE_ISOLATED_ENV:
+        container = _get_container_for_env(state, stage)
+        venv = _get_venv_for_env(state, stage)
+        if not container and not venv:
+            return {"status": "fail", "errors": [{"message": f"拒绝在宿主机直接执行 {stage['type']}，必须在 docker 或 venv 中操作"}]}
+
     executor = EXECUTORS.get(stage["type"], execute_custom)
     start = time.time()
     try:
@@ -141,6 +152,7 @@ def execute_install(stage: dict, state: dict, mcp: McpClient) -> dict:
     results = []
     for cmd in commands:
         success = False
+        last_stderr = ""
         for attempt in range(max_retry):
             exec_cmd = _apply_proxy(cmd, attempt, network)
             if container:
@@ -151,12 +163,19 @@ def execute_install(stage: dict, state: dict, mcp: McpClient) -> dict:
             if r.get("exit_code", -1) == 0:
                 success = True
                 results.append({"cmd": cmd, "status": "ok"})
+                # Learn: if retried and succeeded, record the fix
+                if attempt > 0 and last_stderr:
+                    _error_handler.learn(
+                        stderr=last_stderr,
+                        solution=f"retry with proxy/mirror (attempt {attempt})",
+                    )
                 break
 
+            last_stderr = r.get("stderr", "")
             # Check error level
-            match = _error_handler.classify(r.get("stderr", ""))
+            match = _error_handler.classify(last_stderr)
             if match.level == "L3":
-                return {"status": "fail", "errors": [{"message": r.get("stderr", ""), "level": "L3"}], "commands_run": results}
+                return {"status": "fail", "errors": [{"message": last_stderr, "level": "L3"}], "commands_run": results}
             # L1/L2: retry with different strategy
         if not success:
             return {"status": "fail", "errors": [{"message": f"Failed after {max_retry} retries: {cmd}"}], "commands_run": results}
@@ -284,6 +303,13 @@ def _get_container_for_env(state: dict, stage: dict) -> str:
     envs = state.get("environments", {})
     env_info = envs.get(env_id, {})
     return env_info.get("container_name", "")
+
+
+def _get_venv_for_env(state: dict, stage: dict) -> str:
+    env_id = stage.get("env_id", "")
+    envs = state.get("environments", {})
+    env_info = envs.get(env_id, {})
+    return env_info.get("venv_path", "")
 
 
 def _resolve_commands(stage: dict, state: dict) -> list[str]:
