@@ -28,6 +28,10 @@ def generate_report(state: dict, output_path: Optional[str] = None) -> str:
         gpu_device=state.get("gpu_device", ""),
         gpu_monitor_log=state.get("gpu_monitor_log", ""),
         total_status=_compute_status(state),
+        execution_mode=state.get("execution_mode", "graph_invoke"),
+        degradation_reason=state.get("degradation_reason", ""),
+        issues_resolved=state.get("issues_resolved", []),
+        knowledge_updates=state.get("knowledge_updates", []),
     )
 
     if output_path:

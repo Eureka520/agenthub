@@ -7,6 +7,11 @@
 - 总状态: {{ total_status }}
 - GPU 设备: {{ gpu_device | default('N/A') }}
 
+## 执行模式
+- 模式: {{ execution_mode | default('graph_invoke') }}
+{% if degradation_reason %}- 降级原因: {{ degradation_reason }}
+{% endif %}
+
 ## 各阶段详情
 {% for section in report_sections %}
 ### {{ section.stage_id }}
@@ -50,3 +55,21 @@
 {% for stage_id, choice in resolved_alternatives.items() %}
 - {{ stage_id }}: {{ choice }}
 {% endfor %}
+
+## 问题与解决
+{% if issues_resolved %}
+| 阶段 | 问题 | 解决方案 | 知识库已更新 |
+|------|------|----------|-------------|
+{% for issue in issues_resolved %}| {{ issue.get('stage', '') }} | {{ issue.get('problem', '') }} | {{ issue.get('solution', '') }} | {{ issue.get('knowledge_updated', '否') }} |
+{% endfor %}{% else %}
+无异常。
+{% endif %}
+
+## 知识库更新
+{% if knowledge_updates %}
+| 目标文件 | Section | 内容摘要 | 状态 |
+|----------|---------|----------|------|
+{% for update in knowledge_updates %}| {{ update.get('target_file', '') }} | {{ update.get('section', '') }} | {{ update.get('summary', '') }} | {{ update.get('status', '') }} |
+{% endfor %}{% else %}
+本次执行无新增知识。
+{% endif %}

@@ -1,0 +1,57 @@
+# 整个 AgentHub agent 的先验知识库
+# 按 domain 分 section，每条包含 action/preferred/fallback/notes/learned_from
+# agent 执行任何操作前先查阅此文件获取推荐做法
+
+paddle:
+  - action: install_paddlepaddle_gpu
+    preferred: "pip install paddlepaddle-gpu==3.3.1 -i https://www.paddlepaddle.org.cn/packages/stable/cu130/"
+    fallback: "cu129 版本换 cu129 路径"
+    notes: "2GB whl，超时正常不要中断；容器需 libgomp1"
+    learned_from: "ocrvl_vllm_acc 测试 2026-06-10"
+
+  - action: install_paddleocr
+    preferred: "pip install -U 'paddleocr[doc-parser]' -i https://pypi.tuna.tsinghua.edu.cn/simple"
+    notes: "依赖 opencv，容器需提前装 libgl1 libglib2.0-0"
+    learned_from: "ocrvl_vllm_acc 测试 2026-06-10"
+
+network:
+  - action: pip_install
+    preferred: "优先清华源 -i https://pypi.tuna.tsinghua.edu.cn/simple"
+    fallback: "超时后加 http_proxy=http://agent.baidu.com:8188"
+    notes: "mirror.baidu.com 经常超时，清华源更稳定"
+
+  - action: huggingface_download
+    preferred: "优先 BCE 直链下载（paddle-model-ecology.bj.bcebos.com）"
+    fallback: "HF_ENDPOINT=https://hf-mirror.com 或 proxy agent.baidu.com:8188"
+
+  - action: apt_install
+    preferred: "先设 http_proxy=http://agent.baidu.com:8188 再 apt-get update"
+    notes: "slim 镜像默认无法直连 deb.debian.org"
+
+docker:
+  - action: python_slim_container
+    preferred: "创建后立即安装: apt install -y gcc g++ libgl1 libglib2.0-0 libgomp1"
+    notes: "vllm 需 gcc(triton编译), paddle 需 libgomp1, paddleocr 需 libgl1"
+    learned_from: "ocrvl_vllm_acc 测试 2026-06-10"
+
+  - action: long_running_background
+    preferred: "写 shell 脚本用 exec 替换进程，或用 fork_daemonize.py 方式后台执行"
+    notes: "container_exec 的 nohup cmd & 不可靠——MCP 等待 shell 退出才返回"
+    learned_from: "ocrvl_vllm_acc 测试 2026-06-10"
+
+vllm:
+  - action: serve_paddleocr_vl
+    preferred: "--served-model-name 同时注册 PaddleOCR-VL-1.5-0.9B 和 PaddleOCR-VL-1.6-0.9B"
+    notes: "paddleocr 3.6.0 默认 pipeline_version=v1.6，请求 PaddleOCR-VL-1.6-0.9B"
+    learned_from: "ocrvl_vllm_acc 测试 2026-06-10"
+
+  - action: paddleocr_with_vllm_server
+    preferred: "指定 vl_rec_model_dir 为本地模型路径，避免 PaddleX 尝试下载"
+    notes: "PaddleX 会尝试从 HF/ModelScope 下载模型配置，内网可能卡住"
+    learned_from: "ocrvl_vllm_acc 测试 2026-06-10"
+
+mcp:
+  - action: long_running_command
+    preferred: "fire-and-poll 模式：后台执行+写 done marker+循环 poll marker"
+    notes: "SSE 读超时约 300s，pip install vllm/paddle 需 5-8 分钟会断开"
+    learned_from: "ocrvl_vllm_acc 测试 2026-06-10"

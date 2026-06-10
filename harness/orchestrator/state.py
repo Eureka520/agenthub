@@ -25,3 +25,7 @@ class HarnessState(TypedDict, total=False):
     gpu_device: str            # selected GPU ID (e.g. "3")
     gpu_monitor_log: str       # path to nvidia-smi dmon log
     final_report: str
+    execution_mode: str        # "graph_invoke" | "manual_orchestration"
+    degradation_reason: str    # empty if normal execution
+    issues_resolved: Annotated[list[dict], add]   # [{stage, problem, solution, knowledge_updated}]
+    knowledge_updates: Annotated[list[dict], add]  # [{target_file, section, summary, status}]

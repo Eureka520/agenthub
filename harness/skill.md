@@ -34,6 +34,12 @@
 - L2（尝试修复）: OOM→降参数、版本冲突→尝试替代版本
 - L3（停止记录）: segfault、被 kill → 完整记录 stderr，保留环境
 
+## 降级执行模式
+
+13. 当 `python -m harness run` 因 MCP 连接问题或框架异常无法执行时，切换为**手动编排模式**：agent 仍按 TestPlan 的 stages DAG 顺序逐步通过 MCP 执行，上述 12 条约束规则全部生效，不可降低标准。
+14. 手动编排模式下 agent 必须维护一个 HarnessState dict（记录每个 stage 的 status/duration/errors/commands_run），执行结束后传入 `reporter.generate_report(state)` 产出报告。
+15. 报告中必须标明 `execution_mode: manual_orchestration` 及降级原因，并在"问题与解决"section 记录所有遇到的问题和对应解决方案。
+
 ## 报告要求
 
-每次执行必须产出报告，即使中途失败也要报告到失败点为止。
+每次执行必须产出报告，即使中途失败也要报告到失败点为止。报告必须包含"执行模式"、"问题与解决"、"知识库更新"三个 section。

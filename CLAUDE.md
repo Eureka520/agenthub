@@ -33,3 +33,8 @@ See `docs/remote-ops-rules.md` for full specification.
 10. install/service_start/test_run 禁止在宿主机直接执行，必须在 docker 或 venv 中。生成 TestPlan 时注意正确归类 stage type
 
 See `harness/skill.md` for full harness specification.
+
+## 先验知识
+
+11. 执行任何操作前，先查阅 `knowledge/priors.yaml` 获取相关领域的推荐做法并遵循。priors 中有明确 preferred 的，优先使用而非现场发挥。
+12. 当你通过尝试发现了更优的操作方式或解决了新问题时，必须在当前任务结束前向用户提出 `[KNOWLEDGE UPDATE PROPOSAL]`，明确标注目标文件（`knowledge/priors.yaml` 或 `harness/knowledge.yaml`）、section、条目内容。用户确认后写入，拒绝则不写入但记录到报告中。

@@ -148,6 +148,7 @@ def execute_install(stage: dict, state: dict, mcp: McpClient) -> dict:
     container = _get_container_for_env(state, stage)
     network = CONFIG.get("network", {})
     max_retry = network.get("download_retry", 3)
+    poll_interval = CONFIG.get("defaults", {}).get("poll_interval", 10)
 
     results = []
     for cmd in commands:
@@ -155,28 +156,51 @@ def execute_install(stage: dict, state: dict, mcp: McpClient) -> dict:
         last_stderr = ""
         for attempt in range(max_retry):
             exec_cmd = _apply_proxy(cmd, attempt, network)
+            # Fire-and-poll: submit background + poll marker
+            stage_id = stage["id"]
+            marker = f"/tmp/harness_{stage_id}_{attempt}.marker"
+            log_file = f"/tmp/harness_{stage_id}_{attempt}.log"
+            bg_cmd = f"bash -c '{exec_cmd} > {log_file} 2>&1; echo $? > {marker}' &"
+
             if container:
-                r = mcp.container_exec(container, exec_cmd, timeout=stage.get("timeout", 600))
+                mcp.container_exec(container, bg_cmd, timeout=5)
             else:
-                r = mcp.shell_exec(exec_cmd, timeout=stage.get("timeout", 600))
+                mcp.shell_exec(bg_cmd, timeout=5)
 
-            if r.get("exit_code", -1) == 0:
-                success = True
-                results.append({"cmd": cmd, "status": "ok"})
-                # Learn: if retried and succeeded, record the fix
-                if attempt > 0 and last_stderr:
-                    _error_handler.learn(
-                        stderr=last_stderr,
-                        solution=f"retry with proxy/mirror (attempt {attempt})",
-                    )
+            # Poll for completion
+            deadline = time.time() + stage.get("timeout", 3600)
+            while time.time() < deadline:
+                if container:
+                    r = mcp.container_exec(container, f"cat {marker} 2>/dev/null", timeout=5)
+                else:
+                    r = mcp.shell_exec(f"cat {marker} 2>/dev/null", timeout=5)
+                content = r.get("stdout", "").strip()
+                if content == "0":
+                    success = True
+                    results.append({"cmd": cmd, "status": "ok"})
+                    if attempt > 0 and last_stderr:
+                        _error_handler.learn(
+                            stderr=last_stderr,
+                            solution=f"retry with proxy/mirror (attempt {attempt})",
+                        )
+                    break
+                elif content:  # non-zero exit code
+                    if container:
+                        log_r = mcp.container_exec(container, f"tail -20 {log_file}", timeout=5)
+                    else:
+                        log_r = mcp.shell_exec(f"tail -20 {log_file}", timeout=5)
+                    last_stderr = log_r.get("stdout", "")
+                    match = _error_handler.classify(last_stderr)
+                    if match.level == "L3":
+                        return {"status": "fail", "errors": [{"message": last_stderr, "level": "L3"}], "commands_run": results}
+                    break  # retry with next attempt
+                time.sleep(poll_interval)
+            else:
+                # Timeout waiting for marker
+                return {"status": "timeout", "errors": [{"message": f"Timeout waiting for: {cmd}"}], "commands_run": results}
+
+            if success:
                 break
-
-            last_stderr = r.get("stderr", "")
-            # Check error level
-            match = _error_handler.classify(last_stderr)
-            if match.level == "L3":
-                return {"status": "fail", "errors": [{"message": last_stderr, "level": "L3"}], "commands_run": results}
-            # L1/L2: retry with different strategy
         if not success:
             return {"status": "fail", "errors": [{"message": f"Failed after {max_retry} retries: {cmd}"}], "commands_run": results}
 
@@ -193,7 +217,7 @@ def execute_install(stage: dict, state: dict, mcp: McpClient) -> dict:
 
 
 def execute_service_start(stage: dict, state: dict, mcp: McpClient) -> dict:
-    """Fixed strategy: nohup background + health_check polling. Pins to selected GPU."""
+    """Fixed strategy: background launch via script + health_check polling. Pins to selected GPU."""
     cmd = stage["commands"][0] if stage.get("commands") else ""
     if not cmd:
         return {"status": "fail", "errors": [{"message": "No command for service_start"}]}
@@ -204,14 +228,15 @@ def execute_service_start(stage: dict, state: dict, mcp: McpClient) -> dict:
     interval = CONFIG["defaults"]["health_check_interval"]
     gpu_id = state.get("gpu_device", "")
 
-    # Force nohup background + pin to GPU
-    exec_cmd = _wrap_gpu_env(f"nohup {cmd} > {log_file} 2>&1 &", gpu_id)
+    # Fire: launch in background via bash -c with exec (immediate return)
+    exec_cmd = _wrap_gpu_env(cmd, gpu_id)
+    bg_cmd = f"bash -c 'exec {exec_cmd}' > {log_file} 2>&1 &"
     if container:
-        mcp.container_exec(container, exec_cmd, timeout=10)
+        mcp.container_exec(container, bg_cmd, timeout=5)
     else:
-        mcp.shell_exec(exec_cmd, timeout=10)
+        mcp.shell_exec(bg_cmd, timeout=5)
 
-    # Force health_check polling
+    # Poll: health_check
     health_check = stage.get("health_check", "")
     if not health_check:
         time.sleep(5)

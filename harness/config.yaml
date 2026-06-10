@@ -25,3 +25,4 @@ defaults:
   timeout: 3600
   service_start_timeout: 120
   health_check_interval: 3
+  poll_interval: 10
