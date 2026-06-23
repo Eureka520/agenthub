@@ -36,3 +36,9 @@ def test_l3_unknown(handler):
     match = handler.classify("some completely unknown error xyz")
     assert match.level == "L3"
     assert match.solution is None
+
+
+def test_acceptance_failed(handler):
+    match = handler.classify("ACCEPTANCE_FAILED: metric images_processed=1200 < 1355")
+    assert match.level == "L2"
+    assert match.solution == "rerun_stage"

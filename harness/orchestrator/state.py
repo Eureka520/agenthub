@@ -29,3 +29,7 @@ class HarnessState(TypedDict, total=False):
     degradation_reason: str    # empty if normal execution
     issues_resolved: Annotated[list[dict], add]   # [{stage, problem, solution, knowledge_updated}]
     knowledge_updates: Annotated[list[dict], add]  # [{target_file, section, summary, status}]
+    acceptance_spec: dict              # loaded AcceptanceSpec YAML as dict
+    acceptance_results: dict           # {stage_id: {result, failures, metrics}}
+    evidence_manifest: dict            # merged manifest (populated by final_acceptance)
+    progress_log_path: str             # path to progress_log.jsonl

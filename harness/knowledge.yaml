@@ -101,3 +101,10 @@ known_issues:
     level: L3
     solution: null
     desc: "NCCL 通信错误 → 停止，保留环境"
+
+  # ── Acceptance verification failures ───────────────────────────
+  - pattern: "ACCEPTANCE_FAILED"
+    level: L2
+    solution: "rerun_stage"
+    confidence: medium
+    desc: "验收检查未通过 → 诊断后单次重试该 stage"

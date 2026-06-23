@@ -1,6 +1,8 @@
 """LangGraph dynamic graph builder — constructs DAG from TestPlan stages."""
 
+import json
 import time
+from pathlib import Path
 from typing import Any
 
 from langgraph.graph import StateGraph, END
@@ -8,9 +10,15 @@ from langgraph.graph import StateGraph, END
 from harness.orchestrator.state import HarnessState
 from harness.orchestrator.nodes import execute_stage, McpClient
 from harness.orchestrator.checkpoint import FileCheckpoint
+from harness.progress_log import (
+    ProgressLogger, StageStarted, StageFinished,
+    EvidenceCollected, AcceptanceChecked, ErrorRaised, FinalAcceptance,
+)
+from harness.evidence import scan_stage_dir, merge_manifests
+from harness.acceptance import check_stage_acceptance
 
 
-def build_graph(test_plan: dict, mcp: McpClient = None) -> StateGraph:
+def build_graph(test_plan: dict, mcp: McpClient = None, run_id: str = "") -> StateGraph:
     """Build a LangGraph from TestPlan stages and their dependencies."""
     stages = test_plan.get("stages", [])
     if not stages:
@@ -28,6 +36,12 @@ def build_graph(test_plan: dict, mcp: McpClient = None) -> StateGraph:
                 if s["id"] in (state.get("completed_stages") or []):
                     return {}
 
+                log_path = state.get("progress_log_path", "outputs/progress_log.jsonl")
+                logger = ProgressLogger(log_path, run_id=run_id)
+
+                # Emit stage_started
+                logger.emit(StageStarted(stage=s["id"], depends_on=s.get("depends_on", [])))
+
                 state["current_stage"] = s["id"]
                 result = execute_stage(s, state, mcp_client)
 
@@ -43,10 +57,72 @@ def build_graph(test_plan: dict, mcp: McpClient = None) -> StateGraph:
                     updates["errors"] = [{"stage_id": s["id"], **result}]
                     updates["report_sections"] = [{"stage_id": s["id"], "status": "FAIL", **result}]
 
+                # Collect evidence
+                stage_out_dir = f"outputs/{s['id']}"
+                spec = state.get("acceptance_spec") or {}
+                spec_arts = []
+                for ss in spec.get("stages", []):
+                    if ss["name"] == s["id"]:
+                        spec_arts = [a["path"] for a in ss.get("artifacts", []) if a.get("required")]
+                        break
+                entries = scan_stage_dir(stage_out_dir, s["id"], spec_arts)
+                manifest_path = f"{stage_out_dir}/manifest.json"
+                Path(manifest_path).parent.mkdir(parents=True, exist_ok=True)
+                Path(manifest_path).write_text(json.dumps(entries, ensure_ascii=False, indent=2))
+                logger.emit(EvidenceCollected(stage=s["id"], manifest_path=manifest_path, entry_count=len(entries)))
+
+                # Check acceptance
+                metrics_file = Path(stage_out_dir) / "metrics.json"
+                metrics = json.loads(metrics_file.read_text()) if metrics_file.exists() else {}
+                acc_result = check_stage_acceptance(s["id"], spec, entries, metrics)
+                logger.emit(AcceptanceChecked(stage=s["id"], result=acc_result["result"], failures=acc_result["failures"]))
+
+                acc_results = state.get("acceptance_results") or {}
+                acc_results[s["id"]] = acc_result
+                updates["acceptance_results"] = acc_results
+
+                # If acceptance failed (strict mode)
+                if acc_result["result"] == "fail":
+                    detail = "; ".join(f["detail"] for f in acc_result["failures"])
+                    logger.emit(ErrorRaised(stage=s["id"], error_code="ACCEPTANCE_FAILED", level="L2", match_pattern=""))
+                    updates["errors"] = [{"stage_id": s["id"], "message": f"ACCEPTANCE_FAILED: {detail}", "level": "L2"}]
+                    updates["report_sections"] = [{"stage_id": s["id"], "status": "FAIL", **result, "acceptance": acc_result}]
+
+                # Emit stage_finished
+                logger.emit(StageFinished(stage=s["id"], status=result.get("status", "unknown"), duration_sec=result.get("duration", 0)))
                 return updates
             return node_fn
 
         graph.add_node(stage["id"], make_node())
+
+    # Add final_acceptance node
+    def final_acceptance_node(state: HarnessState) -> dict:
+        spec = state.get("acceptance_spec") or {}
+        test_plan_data = state.get("test_plan", {})
+        log_path = state.get("progress_log_path", "outputs/progress_log.jsonl")
+        logger = ProgressLogger(log_path, run_id=run_id)
+
+        stage_manifests = []
+        for s in test_plan_data.get("stages", []):
+            mp = f"outputs/{s['id']}/manifest.json"
+            stage_manifests.append({"name": s["id"], "manifest_path": mp})
+
+        merged = merge_manifests(
+            stage_manifests,
+            task_id=test_plan_data.get("name", "unknown"),
+            task_type=spec.get("task_type", "unknown"),
+        )
+        Path("outputs/evidence_manifest.json").parent.mkdir(parents=True, exist_ok=True)
+        Path("outputs/evidence_manifest.json").write_text(json.dumps(merged, ensure_ascii=False, indent=2))
+
+        acc_results = state.get("acceptance_results") or {}
+        all_passed = all(r.get("result") in ("pass", "advisory_fail") for r in acc_results.values())
+        overall = "pass" if all_passed else "fail"
+
+        logger.emit(FinalAcceptance(stage="__final__", overall=overall, summary=merged.get("summary", {})))
+        return {"evidence_manifest": merged}
+
+    graph.add_node("final_acceptance", final_acceptance_node)
 
     # Add report node
     def report_node(state: HarnessState) -> dict:
@@ -71,20 +147,20 @@ def build_graph(test_plan: dict, mcp: McpClient = None) -> StateGraph:
     if len(roots) == 1:
         graph.set_entry_point(roots[0])
     else:
-        # Multiple roots — need conditional entry
         graph.set_entry_point(roots[0])
         for root in roots[1:]:
             graph.add_edge("__start__", root)
 
-    # Connect leaf nodes to report
+    # Connect leaf nodes → final_acceptance → report → END
     has_outgoing = set()
     for stage in stages:
         for dep in stage.get("depends_on", []):
             has_outgoing.add(dep)
     leaves = [s["id"] for s in stages if s["id"] not in has_outgoing]
     for leaf in leaves:
-        graph.add_edge(leaf, "generate_report")
+        graph.add_edge(leaf, "final_acceptance")
 
+    graph.add_edge("final_acceptance", "generate_report")
     graph.add_edge("generate_report", END)
 
     return graph.compile()
@@ -107,9 +183,13 @@ def run_harness(test_plan: dict, mcp: McpClient = None, run_id: str = None) -> d
         "network_config": {},
         "resolved_alternatives": {},
         "final_report": "",
+        "acceptance_spec": {},
+        "acceptance_results": {},
+        "evidence_manifest": {},
+        "progress_log_path": "outputs/progress_log.jsonl",
     }
 
-    graph = build_graph(test_plan, mcp)
+    graph = build_graph(test_plan, mcp, run_id=run_id)
     final_state = graph.invoke(initial_state)
 
     # Save final checkpoint

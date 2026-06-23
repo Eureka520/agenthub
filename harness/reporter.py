@@ -1,5 +1,6 @@
 """Report generator — renders HarnessState into markdown report."""
 
+import json
 import time
 from pathlib import Path
 from typing import Optional
@@ -32,6 +33,9 @@ def generate_report(state: dict, output_path: Optional[str] = None) -> str:
         degradation_reason=state.get("degradation_reason", ""),
         issues_resolved=state.get("issues_resolved", []),
         knowledge_updates=state.get("knowledge_updates", []),
+        acceptance_results=state.get("acceptance_results", {}),
+        evidence_manifest=state.get("evidence_manifest", {}),
+        progress_events=_load_progress_events(state.get("progress_log_path", "")),
     )
 
     if output_path:
@@ -51,6 +55,16 @@ def _compute_status(state: dict) -> str:
     return "FAIL"
 
 
+def _load_progress_events(path: str) -> list[dict]:
+    if not path or not Path(path).exists():
+        return []
+    events = []
+    for line in Path(path).read_text().strip().split("\n"):
+        if line.strip():
+            events.append(json.loads(line))
+    return events
+
+
 DEFAULT_TEMPLATE = """# 测试报告: {{ name }}
 
 ## 基本信息
@@ -68,6 +82,42 @@ DEFAULT_TEMPLATE = """# 测试报告: {{ name }}
 - 错误: {{ section.errors[0].get('message', '') | truncate(200) }}
 {% endif %}
 {% endfor %}
+
+## 验收结论
+{% if acceptance_results %}
+| 阶段 | 结果 | 失败详情 |
+|------|------|---------|
+{% for stage_id, res in acceptance_results.items() %}
+| {{ stage_id }} | {{ res.result | upper }} | {{ res.get('failures', []) | map(attribute='detail') | join('; ') | truncate(120) }} |
+{% endfor %}
+{% else %}
+未配置验收规格。
+{% endif %}
+
+## 产物清单
+{% if evidence_manifest and evidence_manifest.stages %}
+{% for stage in evidence_manifest.stages %}
+### {{ stage.name }}
+{% for entry in stage.entries %}
+- `{{ entry.path }}` ({{ entry.size }} bytes, sha256: {{ entry.sha256[:12] }}...) [{{ entry.role }}]
+{% endfor %}
+{% endfor %}
+**总计**: {{ evidence_manifest.summary.total_files }} 文件, {{ evidence_manifest.summary.total_size_bytes }} bytes
+**指纹**: {{ evidence_manifest.summary.manifest_sha256[:16] }}...
+{% else %}
+无产物记录。
+{% endif %}
+
+## 关键事件时间线
+{% if progress_events %}
+| 时间 | 阶段 | 事件 | 摘要 |
+|------|------|------|------|
+{% for ev in progress_events %}
+| {{ ev.ts }} | {{ ev.stage }} | {{ ev.event_type }} | {{ ev.payload | string | truncate(80) }} |
+{% endfor %}
+{% else %}
+无事件记录。
+{% endif %}
 
 ## 异常汇总
 {% if errors %}
