@@ -124,6 +124,51 @@ def build_graph(test_plan: dict, mcp: McpClient = None, run_id: str = "") -> Sta
 
     graph.add_node("final_acceptance", final_acceptance_node)
 
+    # Add verifier node — independent judge with read-only tool schema
+    def verifier_node(state: HarnessState) -> dict:
+        from harness.verifier import run_verifier, build_fallback_verdict
+
+        log_path = state.get("progress_log_path") or "outputs/progress_log.jsonl"
+        logger = ProgressLogger(log_path, run_id=run_id)
+
+        # G2: If Phase 1 already failed, skip Verifier (per spec section 13)
+        acc_results = state.get("acceptance_results") or {}
+        phase1_failed = any(r.get("result") == "fail" for r in acc_results.values())
+        if phase1_failed:
+            verdict = build_fallback_verdict(acc_results, reason="phase1_failed: Verifier skipped")
+            verdict["skipped"] = True
+        else:
+            try:
+                verdict = run_verifier(state)
+            except Exception as e:
+                verdict = {
+                    "overall_verdict": "needs_review",
+                    "checks": [],
+                    "summary": f"verifier crashed: {e}",
+                    "fallback": True,
+                    "fallback_reason": f"exception: {e}",
+                }
+
+        failures = [
+            {"kind": "verifier", "detail": f"{c['check_id']}: {c.get('reason','')}"}
+            for c in verdict.get("checks", [])
+            if c.get("verdict") in ("fail", "needs_review")
+        ]
+        logger.emit(AcceptanceChecked(
+            stage="__verifier__",
+            result=verdict.get("overall_verdict", "needs_review"),
+            failures=failures,
+        ))
+
+        # G4: Resolve verdict path from state (fall back to relative outputs/)
+        verdict_path = Path(state.get("verifier_verdict_path") or "outputs/verifier_verdict.json")
+        verdict_path.parent.mkdir(parents=True, exist_ok=True)
+        verdict_path.write_text(json.dumps(verdict, ensure_ascii=False, indent=2))
+
+        return {"verifier_verdict": verdict}
+
+    graph.add_node("verifier", verifier_node)
+
     # Add report node
     def report_node(state: HarnessState) -> dict:
         from harness.reporter import generate_report
@@ -160,7 +205,8 @@ def build_graph(test_plan: dict, mcp: McpClient = None, run_id: str = "") -> Sta
     for leaf in leaves:
         graph.add_edge(leaf, "final_acceptance")
 
-    graph.add_edge("final_acceptance", "generate_report")
+    graph.add_edge("final_acceptance", "verifier")
+    graph.add_edge("verifier", "generate_report")
     graph.add_edge("generate_report", END)
 
     return graph.compile()
@@ -187,6 +233,7 @@ def run_harness(test_plan: dict, mcp: McpClient = None, run_id: str = None) -> d
         "acceptance_results": {},
         "evidence_manifest": {},
         "progress_log_path": "outputs/progress_log.jsonl",
+        "verifier_verdict": {},
     }
 
     graph = build_graph(test_plan, mcp, run_id=run_id)

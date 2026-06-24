@@ -24,6 +24,7 @@ See `docs/remote-ops-rules.md` for full specification.
 **适用范围**：凡是需要在远端机器上运行代码/命令的任务，包括但不限于：提测验证、issue 复现、模型推理/训练、性能测试、数据分析、环境验证。只要涉及 MCP 远端执行，就必须走 harness 流程。不存在"这个任务比较简单所以直接操作"的例外。
 
 1. 执行上述任何任务时，**必须先生成 TestPlan** 并通过 Pydantic 验证，用户 CLI 确认后才能开始执行。禁止跳过 TestPlan 直接调用 MCP 工具执行。
+1.1. **TestPlan 用户确认通过后，必须生成 AcceptanceSpec** 并向用户展示验收标准（required artifacts、metrics 阈值、exit_criteria、acceptance_mode）。用户 CLI 确认（[A]ccept/[E]dit/[R]egenerate）后冻结，作为后续 stage 门禁的硬约束。禁止跳过 AcceptanceSpec 确认直接执行。
 2. 必须通过 harness 编排引擎逐步执行，不能跳步骤
 3. 无对应 MCP 节点的硬件标记 skip，不模拟结果
 4. 环境创建后不自动删除，标记保留信息供再进入
@@ -44,6 +45,7 @@ See `harness/skill.md` for full harness specification.
 14. 新任务类型只需在 `knowledge/priors.yaml` 的 `acceptance_templates` section 添加 task_type 模板，不要修改 harness 框架代码（`acceptance.py` / `evidence.py` / `progress_log.py` / `graph.py`）。
 15. `acceptance_mode: advisory` 是显式逃生口——验收失败只记录不阻断，但报告中必须显著标注。仅用于探索性任务或历史回放，正式任务必须 `strict`。
 16. 执行脚本可选写 `outputs/<stage>/manifest.hints.json` 给关键产物打 label/description；可选写 `outputs/<stage>/metrics.json` 提供结构化指标。未写时 harness 自动扫描 + LLM 兜底提取。
+17. **Verifier 验证**：harness 在 `final_acceptance` 之后会自动运行 Verifier（独立 `claude -p` 子进程，只读工具 Read/Glob/Grep）。其结果写入 `outputs/verifier_verdict.json` 与最终报告。Worker 不得读取或修改 `verifier_verdict`，也不得绕过 Verifier。
 
 See `docs/specs/2026-06-23-acceptance-spec-design.md` for full design specification.
 

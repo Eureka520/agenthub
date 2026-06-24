@@ -36,6 +36,7 @@ def generate_report(state: dict, output_path: Optional[str] = None) -> str:
         acceptance_results=state.get("acceptance_results", {}),
         evidence_manifest=state.get("evidence_manifest", {}),
         progress_events=_load_progress_events(state.get("progress_log_path", "")),
+        verifier_verdict=state.get("verifier_verdict", {}),
     )
 
     if output_path:
@@ -92,6 +93,21 @@ DEFAULT_TEMPLATE = """# 测试报告: {{ name }}
 {% endfor %}
 {% else %}
 未配置验收规格。
+{% endif %}
+
+## Verifier 验证结果
+{% if verifier_verdict and verifier_verdict.get('overall_verdict') %}
+**总判定**: {{ verifier_verdict.overall_verdict | upper }}{% if verifier_verdict.get('fallback') %} _(降级：{{ verifier_verdict.get('fallback_reason','') | truncate(100) }})_{% endif %}
+**模型**: {{ verifier_verdict.get('model_used', 'N/A') }}
+**摘要**: {{ verifier_verdict.get('summary', '') }}
+
+| Check | 判定 | 证据 | 理由 |
+|-------|------|------|------|
+{% for c in verifier_verdict.get('checks', []) %}
+| {{ c.check_id }} | {% if c.verdict == 'needs_review' %}**[NEEDS_REVIEW]**{% else %}{{ c.verdict | upper }}{% endif %} | {{ c.evidence | truncate(80) }} | {{ c.reason | truncate(80) }} |
+{% endfor %}
+{% else %}
+未运行 Verifier。
 {% endif %}
 
 ## 产物清单

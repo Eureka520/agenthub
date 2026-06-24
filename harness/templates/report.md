@@ -46,6 +46,21 @@
 无异常。
 {% endif %}
 
+## Verifier 验证结果
+{% if verifier_verdict and verifier_verdict.get('overall_verdict') %}
+**总判定**: {{ verifier_verdict.overall_verdict | upper }}{% if verifier_verdict.get('fallback') %} _(降级：{{ verifier_verdict.get('fallback_reason','') | truncate(100) }})_{% endif %}
+**模型**: {{ verifier_verdict.get('model_used', 'N/A') }}
+**摘要**: {{ verifier_verdict.get('summary', '') }}
+
+| Check | 判定 | 证据 | 理由 |
+|-------|------|------|------|
+{% for c in verifier_verdict.get('checks', []) %}
+| {{ c.check_id }} | {% if c.verdict == 'needs_review' %}**[NEEDS_REVIEW]**{% else %}{{ c.verdict | upper }}{% endif %} | {{ c.evidence | truncate(80) }} | {{ c.reason | truncate(80) }} |
+{% endfor %}
+{% else %}
+未运行 Verifier。
+{% endif %}
+
 ## 环境保留信息
 {% for env_id, info in environments.items() %}
 - {{ env_id }}: {% if info.get('container_name') %}`docker exec -it {{ info.container_name }} bash`{% elif info.get('venv_path') %}`source {{ info.venv_path }}/bin/activate`{% endif %} (GPU: {{ info.get('gpu_device', 'all') }})

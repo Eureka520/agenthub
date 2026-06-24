@@ -33,3 +33,5 @@ class HarnessState(TypedDict, total=False):
     acceptance_results: dict           # {stage_id: {result, failures, metrics}}
     evidence_manifest: dict            # merged manifest (populated by final_acceptance)
     progress_log_path: str             # path to progress_log.jsonl
+    verifier_verdict: dict             # Verifier 输出的完整 verdict JSON
+    verifier_verdict_path: str         # 可选：自定义 verdict JSON 写出路径
