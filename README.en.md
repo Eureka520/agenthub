@@ -12,7 +12,7 @@
   AgentHub
 ```
 
-> **Bug reports and suggestions are very welcome — please open an [Issue](https://github.com/Eureka520/agenthub/issues).**
+> **Bug reports and suggestions are very welcome — please open an [Issue](https://github.com/lqliu7/agenthub/issues).**
 
 ---
 
@@ -109,7 +109,7 @@ This is not mirroring or proxying — multiple subscribers share the same PTY ma
 ## Quick Start
 
 ```bash
-git clone https://github.com/Eureka520/agenthub.git
+git clone https://github.com/lqliu7/agenthub.git
 cd agenthub
 bash install.sh
 ```
@@ -211,8 +211,8 @@ Inside any session: **`Ctrl+]`** goes back to the menu without killing the agent
 
 This tool is young and actively evolving. Contributions welcome:
 
-- 🐛 [Report a bug](https://github.com/Eureka520/agenthub/issues/new?labels=bug)
-- 💡 [Request a feature](https://github.com/Eureka520/agenthub/issues/new?labels=enhancement)
+- 🐛 [Report a bug](https://github.com/lqliu7/agenthub/issues/new?labels=bug)
+- 💡 [Request a feature](https://github.com/lqliu7/agenthub/issues/new?labels=enhancement)
 - 🔧 Submit a PR
 
 ---

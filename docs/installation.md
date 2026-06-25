@@ -9,7 +9,7 @@
 ### 快速安装（推荐）
 
 ```bash
-git clone https://github.com/Eureka520/agenthub.git
+git clone https://github.com/lqliu7/agenthub.git
 cd agenthub
 bash install.sh
 ```
@@ -32,7 +32,7 @@ bash install.sh
 #### 1. 克隆项目
 
 ```bash
-git clone https://github.com/Eureka520/agenthub.git
+git clone https://github.com/lqliu7/agenthub.git
 cd agenthub
 ```
 
@@ -156,7 +156,7 @@ agenthub restart
 ### Quick Install (Recommended)
 
 ```bash
-git clone https://github.com/Eureka520/agenthub.git
+git clone https://github.com/lqliu7/agenthub.git
 cd agenthub
 bash install.sh
 ```
@@ -179,7 +179,7 @@ The script automatically detects the environment, installs dependencies, builds 
 #### 1. Clone
 
 ```bash
-git clone https://github.com/Eureka520/agenthub.git
+git clone https://github.com/lqliu7/agenthub.git
 cd agenthub
 ```
 

@@ -9,7 +9,7 @@
 ### 获取代码
 
 ```bash
-git clone https://github.com/Eureka520/agenthub.git
+git clone https://github.com/lqliu7/agenthub.git
 cd agenthub
 ```
 
@@ -100,7 +100,7 @@ cd ../server && RC_USER=admin RC_PASS=yourpassword PORT=8310 node index.js
 ### Get the Code
 
 ```bash
-git clone https://github.com/Eureka520/agenthub.git
+git clone https://github.com/lqliu7/agenthub.git
 cd agenthub
 ```
 
