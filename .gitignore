@@ -25,3 +25,8 @@ graphify-out/
 
 # core dump
 core.*
+
+# 开发过程产物（specs / plans / reports / 临时验证文档）
+docs/specs/
+docs/plans/
+reports/

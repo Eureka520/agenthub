@@ -1,11 +1,11 @@
 {
   "mcpServers": {
     "node-A100-594": {
-      "type": "sse",
-      "url": "http://10.67.178.142:9100/sse",
+      "type": "http",
+      "url": "http://<目标机器IP>:9100/mcp",
       "headers": {
-          "Authorization": "Bearer nexus_ahub"
-        }
+        "Authorization": "Bearer <token>"
+      }
     }
   }
 }
