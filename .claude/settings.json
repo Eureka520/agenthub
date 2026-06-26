@@ -1,0 +1,19 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__.*__(shell_exec|container_exec)",
+        "hooks": [
+          {"type": "command", "command": ".claude/hooks/harness_gate.sh"},
+          {"type": "command", "command": ".claude/hooks/inject_knowledge.sh"}
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "mcp__.*__(shell_exec|container_exec)",
+        "hooks": [{"type": "command", "command": ".claude/hooks/inject_remedies.sh"}]
+      }
+    ]
+  }
+}
